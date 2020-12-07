@@ -1,0 +1,97 @@
+---
+title: "Data_Analysis"
+author: "Kaitlyn Li"
+date: "11/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r import data}
+cal <- read_csv("/home/kaijli/Chem313/Lab11_12_Levoglucosan/Data/cal.csv", col_types = cols(X6 = col_skip(), 
+    X7 = col_skip(), X8 = col_skip(), X9 = col_skip())) %>%
+  slice(1:4)
+
+readings <- read_csv("/home/kaijli/Chem313/Lab11_12_Levoglucosan/Data/readings.csv", 
+    col_types = cols(X3 = col_skip(), X4 = col_skip(), 
+        X5 = col_skip(), X6 = col_skip(), 
+        X7 = col_skip(), X8 = col_skip(), 
+        X9 = col_skip(),
+        year = col_character())) %>%
+  slice(1:18) %>%
+  rename(peak_area = peak)
+```
+
+```{r cal tidy}
+cal_tidy <- cal %>% pivot_longer(cols = 3:5, values_to = "peak_area", names_to = "curve_num") %>%
+  rename(conc = "[Levoglucosan] (ug/mL)",
+         std = "Standard #")
+```
+
+```{r linear model}
+model <- lm(cal_tidy$peak_area ~ cal_tidy$conc)
+
+slope <- model$coefficients[2]
+intercept <- model$coefficients[1]
+slope_std <- summary(model)$coefficients[2,2]
+intercept_std <- summary(model)$coefficients[1,2]
+equation <- tibble(slope, slope_std, intercept, intercept_std)
+
+#plot cal curve
+png("~/Chem313/Lab11_12_Levoglucosan/Plots_and_Images/lc_cr.png")
+cal_tidy %>% 
+  ggplot(aes(x=conc, y = peak_area)) +
+  geom_point() +
+  geom_smooth(method = lm, se = FALSE) +
+  labs(x= "Concentration of Levoglucosan (ug/mL)", y = "Peak Area", title="Calibration Curve for Levoglucosan")
+dev.off()
+
+```
+```{r conc calc}
+lc_data <- readings %>%
+  mutate(conc = ((peak_area - intercept)/slope),
+         conc_err = conc*sqrt((slope_std/slope)^2 + (intercept_std/intercept)^2))
+
+
+```
+
+```{r air conc}
+air_concs <- lc_data %>%
+  mutate(conc_air = conc*2*70/24,
+         conc_air_err = conc_err*2*70*24)
+```
+
+```{r}
+# png("~/Chem313/Lab11_12_Levoglucosan/Plots_and_Images/lc_cr.png")
+air_concs %>% 
+  ggplot(aes(x=year, y = conc_air, ymin = conc_air - conc_air_err, ymax = conc_air + conc_air_err, fatten = .45, color = year)) +
+  geom_pointrange() +
+  facet_wrap(vars(location)) +
+  labs(x= "Year", y = "Concentration of Levoglucosan (ug/mL)", title="Calibration Curve for Levoglucosan")
+# dev.off()
+
+# aq_stats %>% 
+#   ggplot(aes(x = sensor, y = mean, ymin = mean - sd, ymax = mean + sd, fatten = .45, color = fct_relevel(day, "Tuesday", after = 0))) + 
+#   geom_pointrange() +
+#   facet_wrap(vars(location, fct_relevel(pm, "pm_2.5", after = 1)), nrow = 2) +
+#   labs(x = "Sensor Number",y = TeX("Mean Reading $\\mu$g m$^{-3}$"), title = "On Campus AQ Sensor Readings", color = "Day")
+```
+
+```{r}
+air_concs %>% 
+  ggplot(aes(x=year, y = conc_air, fill = year)) +
+  geom_point() +
+  geom_boxplot() +
+  facet_wrap(vars(location)) +
+  labs(x= "Date", y = "Concentration of Levoglucosan (µg/M^3)", title=" Levoglucosan Concentrations By Date", fill = "Date") +
+  theme(plot.title=element_text(size=16),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank())
+```
+
+$$t = \frac{\bar{x}_1 - \bar{x}_2}{\sqrt{s^2(\frac{1}{n_1}+\frac{1}{n_2})}}$$
+$$ConcAir = \frac{Concentration * 2mL*70}{24 hr}$$
+
