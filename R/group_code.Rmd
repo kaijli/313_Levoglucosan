@@ -1,0 +1,223 @@
+---
+title: "LC_MS_Analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r }
+CalCurve1 <- read_csv("/home/kaijli/Chem313/Lab11_12_Levoglucosan/Data/cal.csv", col_types = cols(X6 = col_skip(), 
+    X7 = col_skip(), X8 = col_skip(), X9 = col_skip())) %>%
+  slice(1:4)
+```
+
+```{r Calibration Curve}
+CalCurve1 <- CalCurve1 %>% 
+  pivot_longer(cols= 3:5, values_to= "PeakArea") %>%
+  rename(Conc = "[Levoglucosan] (ug/mL)")
+
+ggplot(CalCurve1, aes(x= Conc, y= PeakArea)) + theme_bw() + geom_point() + geom_smooth(method = lm, se = FALSE) + labs(x= "Concentration of Levoglucosan (µg/mL)", y = "Peak Area", title="Calibration Curve for Levoglucosan")
+
+model <- lm(PeakArea ~ Conc, data= CalCurve1)  
+slope <- model$coefficients[2]
+intercept <- model$coefficients[1]
+slope_std <- summary(model)$coefficients[2,2]
+intercept_std <- summary(model)$coefficients[1,2]
+equation <- tibble(slope, slope_std, intercept, intercept_std)
+
+```
+
+```{r}
+SampleAreas <- read_csv("/home/kaijli/Chem313/Lab11_12_Levoglucosan/Data/readings.csv", 
+    col_types = cols(X3 = col_skip(), X4 = col_skip(), 
+        X5 = col_skip(), X6 = col_skip(), 
+        X7 = col_skip(), X8 = col_skip(), 
+        X9 = col_skip(),
+        year = col_character())) %>%
+  slice(1:18) %>%
+  rename(Area = peak) %>%
+  mutate(Concentration = (SampleAreas$Area - equation$intercept) / equation$slope, 
+         Concentration_Error = Concentration*sqrt((equation$slope_std/equation$slope)^2 + (equation$intercept_std/equation$intercept)^2))
+
+
+
+```
+
+```{r Concentration in the Air}
+SampleAreasAir <- SampleAreas %>%
+  mutate(ConcAir = (Concentration * 2 *70)/24,
+ConcAirError = (Concentration_Error * 2 * 70)/24)
+```
+
+```{r}
+East <- SampleAreasAir %>%
+  filter(str_detect(Location, "E"))
+  East$Coast <- "E"
+
+West <- SampleAreasAir %>%
+  filter(str_detect(Location, "W"))
+  West$Coast <- "W"
+
+Date1750 <- SampleAreasAir %>%
+  filter(str_detect(Location, "1750"))
+  Date1750$Date <- "1750"
+
+Date1950 <- SampleAreasAir %>%
+  filter(str_detect(Location, "1950"))
+  Date1950$Date <- "1950"
+
+Date2020 <- SampleAreasAir %>%
+  filter(str_detect(Location, "2020"))
+  Date2020$Date <- "2020"
+  
+# use full_join to merge two datasets (use multiple times to merge more than two) and "by=" for all the columns to merge by  
+  
+CoastsMerged= full_join(East, West, by= c("Location", "Area", "Concentration", "Concentration_Error", "ConcAir", "ConcAirError", "Coast"))
+
+Date1750Date1950Merged= full_join(Date1750, Date1950, by= c("Location", "Area", "Concentration", "Concentration_Error", "ConcAir", "ConcAirError", "Date"))
+
+DatesMerged= full_join(Date1750Date1950Merged, Date2020, by= c("Location", "Area", "Concentration", "Concentration_Error", "ConcAir", "ConcAirError", "Date"))
+
+AllMerged= full_join(DatesMerged, CoastsMerged, by= c("Location", "Area", "Concentration", "Concentration_Error", "ConcAir", "ConcAirError"))
+
+```
+
+```{r}
+ggplot(AllMerged, aes(x= Date, y= ConcAir, fill= Date))  + geom_point() + geom_boxplot() + facet_wrap(~Coast) + labs(x= "Date", y = "Levoglucosan (µg/M^3)", title="Levoglucosan Concentations By Date")+ theme(plot.title=element_text(size=16),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+)
+
+
+ggplot(AllMerged, aes(x= Coast, y= ConcAir, fill= Coast))  + geom_point() + geom_boxplot() + facet_wrap(~Date) + labs(x= "Coast", y = "Levoglucosan (µg/M^3)", title="Levoglucosan Concentations By Coast") +
+  theme(plot.title=element_text(size=16,face="bold"),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+)
+```
+
+```{r }
+#Taking some means and what not
+
+WrangledMergedCoast<- AllMerged%>%
+   group_by(Coast)%>%
+  summarise(mean_conc = mean(ConcAir), sd_conc = sd(ConcAirError), n = n()) %>%
+    mutate(CI = qnorm(0.975)*sd_conc/sqrt(n),
+         lower_ci = mean_conc - CI,
+         upper_ci = mean_conc + CI)
+
+WrangledMergedDate<- AllMerged%>%
+   group_by(Date)%>%
+  summarise(mean_conc = mean(ConcAir), sd_conc = sd(ConcAirError), n = n()) %>%
+    mutate(CI = qnorm(0.975)*sd_conc/sqrt(n),
+         lower_ci = mean_conc - CI,
+         upper_ci = mean_conc + CI)
+
+WrangledMergedDateCoast<- AllMerged%>%
+   group_by(Date, Coast)%>%
+  summarise(mean_conc = mean(ConcAir), sd_conc = sd(ConcAirError), n = n()) %>%
+    mutate(CI = qnorm(0.975)*sd_conc/sqrt(n),
+         lower_ci = mean_conc - CI,
+         upper_ci = mean_conc + CI)
+
+WrangleAll<- AllMerged%>%
+  summarise(mean_conc = mean(ConcAir), sd_conc = sd(ConcAirError), n = n()) %>%
+    mutate(CI = qnorm(0.975)*sd_conc/sqrt(n),
+         lower_ci = mean_conc - CI,
+         upper_ci = mean_conc + CI)
+```
+
+```{r}
+#By Coast
+p = ggplot(data=WrangledMergedDateCoast,
+    aes(x = Date,y = mean_conc, ymin = lower_ci, ymax = upper_ci ))+
+    geom_pointrange(aes(col=Date))+
+    geom_hline(aes(fill=Date),yintercept =25.45852, linetype=2)+
+    xlab('Coast')+ ylab("")+
+    geom_errorbar(aes(ymin=lower_ci, ymax=upper_ci,col=Date),width=0.5,cex=1)+ 
+    facet_wrap(~Coast,strip.position="left",nrow=9,scales = "free_y") +
+    theme(plot.title=element_text(size=16,face="bold"),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+)+ coord_flip()
+ p
+
+#By date
+
+ p = ggplot(data=WrangledMergedDateCoast,
+    aes(x = Coast,y = mean_conc, ymin = lower_ci, ymax = upper_ci ))+
+    geom_pointrange(aes(col=Coast))+
+    geom_hline(aes(fill=Coast),yintercept =25.45852, linetype=2)+
+    xlab('Date')+ ylab("")+
+    geom_errorbar(aes(ymin=lower_ci, ymax=upper_ci,col=Coast),width=0.5,cex=1)+ 
+    facet_wrap(~Date,strip.position="left",nrow=9,scales = "free_y") +
+    theme(plot.title=element_text(size=13),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+)+ coord_flip()+labs(x= "Levoglucosan (µg/M^3)", y = "Date", title="Confidence Intervals of East and West Data by Date")
+ p
+
+```
+
+```{r}
+#I found this function on stack exchange
+#https://stats.stackexchange.com/questions/30394/how-to-perform-two-sample-t-tests-in-r-by-inputting-sample-statistics-rather-tha
+
+# m1, m2: the sample means
+# s1, s2: the sample standard deviations
+# n1, n2: the same sizes
+# m0: the null value for the difference in means to be tested for. Default is 0. 
+# equal.variance: whether or not to assume equal variance. Default is FALSE. 
+t.test2 <- function(m1,m2,s1,s2,n1,n2,m0=0,equal.variance=FALSE)
+{
+    if( equal.variance==FALSE ) 
+    {
+        se <- sqrt( (s1^2/n1) + (s2^2/n2) )
+        # welch-satterthwaite df
+        df <- ( (s1^2/n1 + s2^2/n2)^2 )/( (s1^2/n1)^2/(n1-1) + (s2^2/n2)^2/(n2-1) )
+    } else
+    {
+        # pooled standard deviation, scaled by the sample sizes
+        se <- sqrt( (1/n1 + 1/n2) * ((n1-1)*s1^2 + (n2-1)*s2^2)/(n1+n2-2) ) 
+        df <- n1+n2-2
+    }      
+    t <- (m1-m2-m0)/se 
+    dat <- c(m1-m2, se, t, 2*pt(-abs(t),df))    
+    names(dat) <- c("Difference of means", "Std Error", "t", "p-value")
+    return(dat) 
+}
+
+```
+
+
+```{r}
+#t.tests for between coasts and dates
+#between east and west coast, 28 is west coast, 22 is east
+t.test2(28.88944, 22.02761, 1.9890903, 0.7358164, 9, 9)
+#between dates
+#1750 vs 1950
+t.test2(22.39063, 19.42787, 0.3906315, 0.287577, 6,6)
+#2020 vs 1750
+t.test2(34.55706,22.39063, 2.0069464,0.3906315, 6, 6 )
+#2020vs 1950
+t.test2(34.55706,19.42787, 2.0069464,0.287577, 6, 6 )
+#2020 west vs east
+
+t.test2(41.18383,27.93030, 2.57170020, 0.04963259, 3, 3)
+```
+
+```{r}
+#Some more plots
+ggplot(WrangledMergedDateCoast, aes(x= Date, y= mean_conc, fill= Coast)) + theme_bw() + geom_point() + geom_point() + facet_wrap(~Date) + labs(x= "Coast", y = "Levoglucosan (µg/M^3)", title="Levoglucosan Concentations By Coast")
+
+
+```
+
+```{r}
+#grubbs test
+library(outliers)
+grubbs.test(AllMerged$ConcAir, type=20)
+```

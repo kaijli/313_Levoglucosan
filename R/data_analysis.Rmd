@@ -92,6 +92,7 @@ air_concs %>%
         axis.ticks.y=element_blank())
 ```
 
+
 $$t = \frac{\bar{x}_1 - \bar{x}_2}{\sqrt{s^2(\frac{1}{n_1}+\frac{1}{n_2})}}$$
 $$ConcAir = \frac{Concentration * 2mL*70}{24 hr}$$
 
